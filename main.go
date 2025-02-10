@@ -22,6 +22,36 @@ const (
 	height = 64
 )
 
+// NetworkChecker interface for getting IP addresses
+type NetworkChecker interface {
+	GetIPv4Address(interfaceName string) string
+}
+
+// RealNetworkChecker implements NetworkChecker for actual network interfaces
+type RealNetworkChecker struct{}
+
+// GetIPv4Address gets the IPv4 address of the specified interface
+func (r *RealNetworkChecker) GetIPv4Address(interfaceName string) string {
+	iface, err := net.InterfaceByName(interfaceName)
+	if err != nil {
+		return fmt.Sprintf("No %s", interfaceName)
+	}
+
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return "No IP"
+	}
+
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok {
+			if ip4 := ipnet.IP.To4(); ip4 != nil {
+				return ip4.String()
+			}
+		}
+	}
+	return "No IPv4"
+}
+
 // addLabel adds a text label to the image
 func addLabel(img *image.RGBA, x, y int, label string) {
 	point := fixed.Point26_6{X: fixed.I(x), Y: fixed.I(y)}
@@ -55,40 +85,21 @@ func drawBar(img *image.RGBA, x, y, width, height int, percentage float64) {
 	}
 }
 
-// getEth0IPv4 gets the IPv4 address of eth0
-func getEth0IPv4() string {
-	iface, err := net.InterfaceByName("eth0")
-	if err != nil {
-		return "No eth0"
-	}
-
-	addrs, err := iface.Addrs()
-	if err != nil {
-		return "No IP"
-	}
-
-	for _, addr := range addrs {
-		// Check if the address is an IP network
-		if ipnet, ok := addr.(*net.IPNet); ok {
-			// Check if it's an IPv4 address
-			if ip4 := ipnet.IP.To4(); ip4 != nil {
-				return ip4.String()
-			}
-		}
-	}
-	return "No IPv4"
+func main() {
+	networkChecker := &RealNetworkChecker{}
+	runMonitor(networkChecker)
 }
 
-func main() {
+func runMonitor(networkChecker NetworkChecker) error {
 	// Initialize periph.io
 	if _, err := host.Init(); err != nil {
-		panic(fmt.Sprintf("failed to initialize periph: %v", err))
+		return fmt.Errorf("failed to initialize periph: %v", err)
 	}
 
 	// Open default I2C bus
 	bus, err := i2creg.Open("")
 	if err != nil {
-		panic(fmt.Sprintf("failed to open I2C: %v", err))
+		return fmt.Errorf("failed to open I2C: %v", err)
 	}
 	defer bus.Close()
 
@@ -98,7 +109,7 @@ func main() {
 		H: height,
 	})
 	if err != nil {
-		panic(fmt.Sprintf("failed to initialize SSD1306: %v", err))
+		return fmt.Errorf("failed to initialize SSD1306: %v", err)
 	}
 
 	// Create a new image buffer
@@ -112,18 +123,18 @@ func main() {
 		}
 
 		// Get IP address
-		ipAddr := getEth0IPv4()
+		ipAddr := networkChecker.GetIPv4Address("eth0")
 
 		// Get CPU usage
 		cpuPercent, err := cpu.Percent(0, false)
 		if err != nil {
-			panic(fmt.Sprintf("failed to get CPU usage: %v", err))
+			return fmt.Errorf("failed to get CPU usage: %v", err)
 		}
 
 		// Get memory usage
 		memInfo, err := mem.VirtualMemory()
 		if err != nil {
-			panic(fmt.Sprintf("failed to get memory info: %v", err))
+			return fmt.Errorf("failed to get memory info: %v", err)
 		}
 
 		// Draw IP address
@@ -141,11 +152,10 @@ func main() {
 
 		// Update the display
 		if err := dev.Draw(img.Bounds(), img, image.Point{0, 0}); err != nil {
-			panic(fmt.Sprintf("failed to draw to display: %v", err))
+			return fmt.Errorf("failed to draw to display: %v", err)
 		}
 
 		// Wait before next update
 		time.Sleep(1 * time.Second)
 	}
 }
-

@@ -3,17 +3,9 @@ package main
 import (
 	"image"
 	"image/color"
+	"os"
 	"testing"
 )
-
-// MockNetworkChecker implements NetworkChecker for testing
-type MockNetworkChecker struct {
-	ipAddress string
-}
-
-func (m *MockNetworkChecker) GetIPv4Address(interfaceName string) string {
-	return m.ipAddress
-}
 
 // TestDrawBar tests the drawBar function
 func TestDrawBar(t *testing.T) {
@@ -45,11 +37,11 @@ func TestDrawBar(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			img := image.NewRGBA(image.Rect(0, 0, 128, 64))
-			drawBar(img, 10, 10, 50, 10, tt.percentage)
+			img := image.NewRGBA(image.Rect(0, 0, width, height))
+			drawBar(img, 10, 10, 50, barHeight, tt.percentage)
 
 			// Check if bar is drawn correctly
-			middle := img.RGBAAt(35, 15) // Point in middle of bar
+			middle := img.RGBAAt(35, 13) // Point in middle of bar adjusted for new height
 			if tt.wantEmpty && middle.R != 0 {
 				t.Errorf("Expected empty bar, but got color at middle point")
 			}
@@ -61,6 +53,12 @@ func TestDrawBar(t *testing.T) {
 			border := img.RGBAAt(10, 10) // Top-left corner
 			if border.R == 0 {
 				t.Errorf("Expected border to be drawn")
+			}
+
+			// Verify bar height
+			bottomBorder := img.RGBAAt(10, 10+barHeight)
+			if bottomBorder.R == 0 {
+				t.Errorf("Expected bottom border at correct height")
 			}
 		})
 	}
@@ -92,7 +90,7 @@ func TestAddLabel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			img := image.NewRGBA(image.Rect(0, 0, 128, 64))
+			img := image.NewRGBA(image.Rect(0, 0, width, height))
 			addLabel(img, tt.x, tt.y, tt.text)
 
 			// Check if any pixels were drawn
@@ -117,25 +115,34 @@ func TestAddLabel(t *testing.T) {
 	}
 }
 
+// MockNetworkChecker implements NetworkChecker for testing
+type MockNetworkChecker struct {
+	ipAddress string
+}
+
+func (m *MockNetworkChecker) GetIPv4Address(interfaceName string) string {
+	return m.ipAddress
+}
+
 // TestGetIPv4Address tests the IP address retrieval
 func TestGetIPv4Address(t *testing.T) {
 	tests := []struct {
-		name     string
-		ipAddr   string
+		name       string
+		ipAddr     string
 		interface_ string
-		want     string
+		want       string
 	}{
 		{
-			name:     "Valid IPv4",
-			ipAddr:   "192.168.1.100",
+			name:       "Valid IPv4",
+			ipAddr:     "192.168.1.100",
 			interface_: "eth0",
-			want:     "192.168.1.100",
+			want:      "192.168.1.100",
 		},
 		{
-			name:     "No interface",
-			ipAddr:   "No eth0",
+			name:       "No interface",
+			ipAddr:     "No eth0",
 			interface_: "eth0",
-			want:     "No eth0",
+			want:       "No eth0",
 		},
 	}
 
@@ -149,3 +156,109 @@ func TestGetIPv4Address(t *testing.T) {
 		})
 	}
 }
+
+// TestDisplayManager tests the display manager functionality
+func TestDisplayManager(t *testing.T) {
+	// Create a temporary config file for testing
+	configYAML := []byte(`
+screen_duration: 1
+network_interface: eth0
+screens:
+  - name: Test Screen
+    components:
+      - type: time
+        x: 5
+        y: 10
+        time_format: "15:04:05"
+      - type: ip
+        x: 5
+        y: 20
+        label: IP
+`)
+
+	tmpfile, err := os.CreateTemp("", "config*.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	if _, err := tmpfile.Write(configYAML); err != nil {
+		t.Fatal(err)
+	}
+	if err := tmpfile.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create display manager with mock network checker
+	checker := &MockNetworkChecker{ipAddress: "192.168.1.100"}
+	dm, err := NewDisplayManager(tmpfile.Name(), checker)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Test config parsing
+	if dm.config.ScreenDuration != 1 {
+		t.Errorf("Expected screen duration 1, got %d", dm.config.ScreenDuration)
+	}
+	if dm.config.NetworkInterface != "eth0" {
+		t.Errorf("Expected network interface eth0, got %s", dm.config.NetworkInterface)
+	}
+	if len(dm.config.Screens) != 1 {
+		t.Errorf("Expected 1 screen, got %d", len(dm.config.Screens))
+	}
+
+	// Test component parsing
+	screen := dm.config.Screens[0]
+	if len(screen.Components) != 2 {
+		t.Errorf("Expected 2 components, got %d", len(screen.Components))
+	}
+
+	// Test time component
+	timeComp := screen.Components[0]
+	if timeComp.Type != "time" {
+		t.Errorf("Expected time component, got %s", timeComp.Type)
+	}
+	if timeComp.TimeFormat != "15:04:05" {
+		t.Errorf("Expected time format 15:04:05, got %s", timeComp.TimeFormat)
+	}
+}
+
+// TestTimeComponent tests the time display functionality
+func TestTimeComponent(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	comp := Component{
+		Type:       "time",
+		X:          5,
+		Y:          10,
+		TimeFormat: "15:04:05",
+	}
+
+	// Create a display manager with a mock network checker
+	dm := &DisplayManager{
+		img:           img,
+		networkChecker: &MockNetworkChecker{},
+	}
+
+	// Test time rendering
+	err := dm.renderComponent(comp)
+	if err != nil {
+		t.Errorf("Failed to render time component: %v", err)
+	}
+
+	// Verify that something was drawn
+	hasPixels := false
+	bounds := img.Bounds()
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			if img.RGBAAt(x, y) != (color.RGBA{}) {
+				hasPixels = true
+				break
+			}
+		}
+	}
+
+	if !hasPixels {
+		t.Error("Expected time component to draw pixels")
+	}
+}
+

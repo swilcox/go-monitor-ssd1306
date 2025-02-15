@@ -22,10 +22,39 @@ import (
 )
 
 const (
-	width     = 128
-	height    = 64
-	barHeight = 7   // height of progress bars
+	width            = 128
+	height          = 64
+	barHeight       = 7
+	brightContrast  = 255
+	dimContrast     = 1
 )
+
+// Config represents the main configuration
+type Config struct {
+	ScreenDuration    int      `yaml:"screen_duration"`
+	NetworkInterface  string   `yaml:"network_interface"`
+	InvertDuration    int      `yaml:"invert_duration"`    // seconds between invert toggles, 0 to disable
+	DayStartHour     int      `yaml:"day_start_hour"`     // hour to switch to bright mode (0-23)
+	NightStartHour   int      `yaml:"night_start_hour"`   // hour to switch to dim mode (0-23)
+	Screens          []Screen `yaml:"screens"`
+}
+
+// Screen represents a single virtual screen configuration
+type Screen struct {
+	Name       string      `yaml:"name"`
+	Components []Component `yaml:"components"`
+}
+
+// Component represents a display component configuration
+type Component struct {
+	Type       string `yaml:"type"`
+	X          int    `yaml:"x"`
+	Y          int    `yaml:"y"`
+	Label      string `yaml:"label,omitempty"`
+	ShowBar    bool   `yaml:"show_bar,omitempty"`
+	BarWidth   int    `yaml:"bar_width,omitempty"`
+	TimeFormat string `yaml:"time_format,omitempty"`
+}
 
 // NetworkChecker interface for getting IP addresses
 type NetworkChecker interface {
@@ -57,30 +86,6 @@ func (r *RealNetworkChecker) GetIPv4Address(interfaceName string) string {
 	return "No IPv4"
 }
 
-// Config represents the main configuration
-type Config struct {
-	ScreenDuration   int      `yaml:"screen_duration"`
-	NetworkInterface string   `yaml:"network_interface"`
-	Screens          []Screen `yaml:"screens"`
-}
-
-// Screen represents a single virtual screen configuration
-type Screen struct {
-	Name       string      `yaml:"name"`
-	Components []Component `yaml:"components"`
-}
-
-// Component represents a display component configuration
-type Component struct {
-	Type      string `yaml:"type"`
-	X         int    `yaml:"x"`
-	Y         int    `yaml:"y"`
-	Label     string `yaml:"label,omitempty"`
-	ShowBar   bool   `yaml:"show_bar,omitempty"`
-	BarWidth  int    `yaml:"bar_width,omitempty"`
-	TimeFormat string `yaml:"time_format,omitempty"`
-}
-
 // DisplayManager handles screen rotation and rendering
 type DisplayManager struct {
 	config         Config
@@ -88,6 +93,7 @@ type DisplayManager struct {
 	networkChecker NetworkChecker
 	dev           *ssd1306.Dev
 	img           *image.RGBA
+	isInverted    bool
 }
 
 // addLabel adds a text label to the image
@@ -162,17 +168,72 @@ func NewDisplayManager(configPath string, networkChecker NetworkChecker) (*Displ
 	}, nil
 }
 
+func (dm *DisplayManager) updateBrightness() error {
+	hour := time.Now().Hour()
+	isDaytime := hour >= dm.config.DayStartHour && hour < dm.config.NightStartHour
+	
+	contrast := dimContrast
+	if isDaytime {
+		contrast = brightContrast
+	}
+	
+	return dm.dev.SetContrast(uint8(contrast))
+}
+
 func (dm *DisplayManager) Run() error {
-	ticker := time.NewTicker(time.Duration(dm.config.ScreenDuration) * time.Second)
-	defer ticker.Stop()
+	screenTicker := time.NewTicker(time.Duration(dm.config.ScreenDuration) * time.Second)
+	defer screenTicker.Stop()
+
+	// Update values every second
+	updateTicker := time.NewTicker(1 * time.Second)
+	defer updateTicker.Stop()
+
+	var invertTicker *time.Ticker
+	var invertChan <-chan time.Time
+	if dm.config.InvertDuration > 0 {
+		invertTicker = time.NewTicker(time.Duration(dm.config.InvertDuration) * time.Second)
+		defer invertTicker.Stop()
+		invertChan = invertTicker.C
+	}
+
+	// Initialize brightness based on current time
+	if err := dm.updateBrightness(); err != nil {
+		return fmt.Errorf("failed to set initial brightness: %v", err)
+	}
+
+	// Check brightness every minute
+	brightnessTicker := time.NewTicker(1 * time.Minute)
+	defer brightnessTicker.Stop()
+
+	// Render initial screen
+	if err := dm.renderCurrentScreen(); err != nil {
+		return err
+	}
 
 	for {
-		if err := dm.renderCurrentScreen(); err != nil {
-			return err
-		}
+		select {
+		case <-screenTicker.C:
+			dm.currentScreen = (dm.currentScreen + 1) % len(dm.config.Screens)
+			if err := dm.renderCurrentScreen(); err != nil {
+				return err
+			}
 
-		<-ticker.C
-		dm.currentScreen = (dm.currentScreen + 1) % len(dm.config.Screens)
+		case <-updateTicker.C:
+			if err := dm.renderCurrentScreen(); err != nil {
+				return err
+			}
+
+		case <-invertChan:
+			dm.isInverted = !dm.isInverted
+			if err := dm.dev.Invert(dm.isInverted); err != nil {
+				return fmt.Errorf("failed to toggle invert: %v", err)
+			}
+
+		case <-brightnessTicker.C:
+			if err := dm.updateBrightness(); err != nil {
+				return fmt.Errorf("failed to update brightness: %v", err)
+			}
+		}
 	}
 }
 

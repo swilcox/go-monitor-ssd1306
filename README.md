@@ -1,6 +1,6 @@
 # Raspberry Pi OLED System Monitor
 
-A Go application for displaying system information on an SSD1306 OLED display connected to a Raspberry Pi. The display can be configured to show multiple "screens" of information that rotate automatically.
+A Go application for displaying system information on an SSD1306 OLED display connected to a Raspberry Pi. The display shows multiple "screens" of information that rotate automatically, with values updating every second.
 
 ## Features
 
@@ -8,10 +8,12 @@ A Go application for displaying system information on an SSD1306 OLED display co
   - CPU usage with progress bar
   - Memory usage with progress bar
   - Disk usage with progress bar
-  - IP address
+  - IP address for configured network interface
   - Current time in various formats
 - Configurable virtual screens that rotate at specified intervals
-- YAML configuration for easy customization
+- Automatic brightness adjustment based on time of day
+- Optional display inversion to prevent burn-in
+- YAML configuration
 - Support for both 128x64 and 128x32 OLED displays (SSD1306)
 
 ## Hardware Setup
@@ -91,8 +93,11 @@ The application uses a YAML configuration file (`config.yaml`) to define what in
 
 ```yaml
 # Display configuration
-screen_duration: 5  # seconds between screen switches
-network_interface: eth0  # network interface to monitor
+screen_duration: 5      # seconds between screen switches
+invert_duration: 30     # seconds between display inversion (0 to disable)
+day_start_hour: 7      # 7:00 AM - switch to bright mode
+night_start_hour: 18   # 6:00 PM - switch to dim mode
+network_interface: eth0
 
 screens:
   - name: System Status
@@ -100,7 +105,7 @@ screens:
       - type: time
         x: 5
         y: 10
-        time_format: "15:04:05"  # 24-hour format with seconds
+        time_format: "15:04:05"
 
       - type: ip
         x: 5
@@ -140,7 +145,10 @@ screens:
 
 #### Global Settings
 - `screen_duration`: Time in seconds before switching to next screen
+- `invert_duration`: Time in seconds between display inversion toggles (set to 0 to disable)
 - `network_interface`: Network interface to monitor for IP address
+- `day_start_hour`: Hour (0-23) to switch to bright mode
+- `night_start_hour`: Hour (0-23) to switch to dim mode
 
 #### Component Types
 1. Time Component:
@@ -175,6 +183,13 @@ screens:
    y: 22
    label: "IP"
    ```
+
+### Display Behavior
+- All component values update every second
+- Screens rotate based on `screen_duration`
+- Display brightness automatically adjusts based on time of day
+- Optional display inversion helps prevent burn-in
+- Progress bars are 7 pixels high
 
 ## Running as a Service
 
@@ -216,3 +231,4 @@ Contributions are welcome! Feel free to submit issues and pull requests.
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+

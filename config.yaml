@@ -1,6 +1,9 @@
 # Display configuration
 screen_duration: 5  # seconds between screen switches
 network_interface: eth0
+invert_duration: 30
+day_start_hour: 8
+night_start_hour: 17
 
 screens:
   - name: Time
@@ -14,8 +17,8 @@ screens:
       - type: time
         x: 5
         y: 25
-        label: Time
-        time_format: "3:04 PM"   # 12-hour format
+        label: Date
+        time_format: "Mon 02-Jan"   # date format
 
   - name: System Status
     components:

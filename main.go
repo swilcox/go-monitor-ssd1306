@@ -86,14 +86,23 @@ func (r *RealNetworkChecker) GetIPv4Address(interfaceName string) string {
 	return "No IPv4"
 }
 
+// DisplayDevice interface defines the methods we need from a display
+type DisplayDevice interface {
+	SetContrast(contrast uint8) error
+	Invert(inverted bool) error
+	Draw(r image.Rectangle, src image.Image, sp image.Point) error
+	Halt() error
+}
+
 // DisplayManager handles screen rotation and rendering
 type DisplayManager struct {
 	config         Config
 	currentScreen  int
 	networkChecker NetworkChecker
-	dev           *ssd1306.Dev
+	dev           DisplayDevice
 	img           *image.RGBA
 	isInverted    bool
+	timeNow       func() time.Time
 }
 
 // addLabel adds a text label to the image
@@ -165,11 +174,12 @@ func NewDisplayManager(configPath string, networkChecker NetworkChecker) (*Displ
 		networkChecker: networkChecker,
 		dev:           dev,
 		img:           image.NewRGBA(image.Rect(0, 0, width, height)),
+		timeNow:       time.Now,
 	}, nil
 }
 
 func (dm *DisplayManager) updateBrightness() error {
-	hour := time.Now().Hour()
+	hour := dm.timeNow().Hour()
 	isDaytime := hour >= dm.config.DayStartHour && hour < dm.config.NightStartHour
 	
 	contrast := dimContrast
@@ -319,4 +329,3 @@ func main() {
 		panic(fmt.Sprintf("display manager error: %v", err))
 	}
 }
-

@@ -22,20 +22,21 @@ import (
 )
 
 const (
-	width            = 128
-	height          = 64
-	barHeight       = 7
-	brightContrast  = 255
-	dimContrast     = 1
+	width          = 128
+	height         = 64
+	barHeight      = 7
+	brightContrast = 255
+	dimContrast    = 1
+	tempFile       = "/sys/class/thermal/thermal_zone0/temp"
 )
 
 // Config represents the main configuration
 type Config struct {
-	ScreenDuration    int      `yaml:"screen_duration"`
-	NetworkInterface  string   `yaml:"network_interface"`
-	InvertDuration    int      `yaml:"invert_duration"`    // seconds between invert toggles, 0 to disable
-	DayStartHour     int      `yaml:"day_start_hour"`     // hour to switch to bright mode (0-23)
-	NightStartHour   int      `yaml:"night_start_hour"`   // hour to switch to dim mode (0-23)
+	ScreenDuration   int      `yaml:"screen_duration"`
+	NetworkInterface string   `yaml:"network_interface"`
+	InvertDuration   int      `yaml:"invert_duration"`  // seconds between invert toggles, 0 to disable
+	DayStartHour     int      `yaml:"day_start_hour"`   // hour to switch to bright mode (0-23)
+	NightStartHour   int      `yaml:"night_start_hour"` // hour to switch to dim mode (0-23)
 	Screens          []Screen `yaml:"screens"`
 }
 
@@ -99,10 +100,10 @@ type DisplayManager struct {
 	config         Config
 	currentScreen  int
 	networkChecker NetworkChecker
-	dev           DisplayDevice
-	img           *image.RGBA
-	isInverted    bool
-	timeNow       func() time.Time
+	dev            DisplayDevice
+	img            *image.RGBA
+	isInverted     bool
+	timeNow        func() time.Time
 }
 
 // addLabel adds a text label to the image
@@ -172,21 +173,21 @@ func NewDisplayManager(configPath string, networkChecker NetworkChecker) (*Displ
 		config:         config,
 		currentScreen:  0,
 		networkChecker: networkChecker,
-		dev:           dev,
-		img:           image.NewRGBA(image.Rect(0, 0, width, height)),
-		timeNow:       time.Now,
+		dev:            dev,
+		img:            image.NewRGBA(image.Rect(0, 0, width, height)),
+		timeNow:        time.Now,
 	}, nil
 }
 
 func (dm *DisplayManager) updateBrightness() error {
 	hour := dm.timeNow().Hour()
 	isDaytime := hour >= dm.config.DayStartHour && hour < dm.config.NightStartHour
-	
+
 	contrast := dimContrast
 	if isDaytime {
 		contrast = brightContrast
 	}
-	
+
 	return dm.dev.SetContrast(uint8(contrast))
 }
 
@@ -268,16 +269,16 @@ func (dm *DisplayManager) renderComponent(comp Component) error {
 	case "time":
 		timeFormat := comp.TimeFormat
 		if timeFormat == "" {
-			timeFormat = "15:04:05"  // default to 24-hour time with seconds
+			timeFormat = "15:04:05" // default to 24-hour time with seconds
 		}
 		currentTime := time.Now().Format(timeFormat)
-		addLabel(dm.img, comp.X, comp.Y, fmt.Sprintf("%s%s", 
+		addLabel(dm.img, comp.X, comp.Y, fmt.Sprintf("%s%s",
 			func() string {
 				if comp.Label != "" {
 					return comp.Label + ": "
 				}
 				return ""
-			}(), 
+			}(),
 			currentTime))
 
 	case "ip":
@@ -313,6 +314,26 @@ func (dm *DisplayManager) renderComponent(comp Component) error {
 		if comp.ShowBar {
 			drawBar(dm.img, comp.X, comp.Y+5, comp.BarWidth, barHeight, float64(usage.UsedPercent)/100.0)
 		}
+
+	case "temperature":
+		temp, err := os.ReadFile(tempFile)
+		if err != nil {
+			return fmt.Errorf("failed to read temperature: %v", err)
+		}
+		tempValue := string(temp)
+		if len(tempValue) > 0 {
+			tempValue = tempValue[:len(tempValue)-1] // Remove newline
+		}
+		tempCelsius := float64(0)
+		if _, err := fmt.Sscanf(tempValue, "%f", &tempCelsius); err != nil {
+			return fmt.Errorf("failed to parse temperature: %v", err)
+		}
+		tempCelsius /= 1000.0 // Convert to Celsius
+		addLabel(dm.img, comp.X, comp.Y, fmt.Sprintf("%s: %.1f*C", comp.Label, tempCelsius))
+		if comp.ShowBar {
+			drawBar(dm.img, comp.X, comp.Y+5, comp.BarWidth, barHeight, tempCelsius/100.0)
+		}
+
 	}
 
 	return nil

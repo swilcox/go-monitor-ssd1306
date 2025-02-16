@@ -329,7 +329,7 @@ func (dm *DisplayManager) renderComponent(comp Component) error {
 			return fmt.Errorf("failed to parse temperature: %v", err)
 		}
 		tempCelsius /= 1000.0 // Convert to Celsius
-		addLabel(dm.img, comp.X, comp.Y, fmt.Sprintf("%s: %.1f*C", comp.Label, tempCelsius))
+		addLabel(dm.img, comp.X, comp.Y, fmt.Sprintf("%s: %.1f C", comp.Label, tempCelsius))
 		if comp.ShowBar {
 			drawBar(dm.img, comp.X, comp.Y+5, comp.BarWidth, barHeight, tempCelsius/100.0)
 		}

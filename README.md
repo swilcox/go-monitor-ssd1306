@@ -10,6 +10,7 @@ A Go application for displaying system information on an SSD1306 OLED display co
   - Disk usage with progress bar
   - IP address for configured network interface
   - Current time in various formats
+  - CPU Temperature
 - Configurable virtual screens that rotate at specified intervals
 - Automatic brightness adjustment based on time of day
 - Optional display inversion to prevent burn-in
@@ -166,9 +167,9 @@ screens:
    - "Mon 15:04" - Day and time
    - "02-Jan" - Date
 
-2. System Metrics (CPU, Memory, Disk):
+2. System Metrics (CPU, Memory, Disk, Temperature):
    ```yaml
-   type: cpu    # or memory, disk
+   type: cpu    # or memory, disk, temperature
    x: 5
    y: 25
    label: "CPU"

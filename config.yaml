@@ -49,4 +49,10 @@ screens:
         label: Disk
         show_bar: true
         bar_width: 118
+      - type: temperature
+        x: 5
+        y: 48
+        label: Temp
+        show_bar: true
+        bar_width: 118
 
